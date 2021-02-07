@@ -1,0 +1,16 @@
+{
+  "name": "egcbot",
+  "version": "1.0.0",
+  "description": "A Discord bot for teh EGC tournament",
+  "main": "index.js",
+  "dependencies": {
+    "discord-slash-commands-client": "^1.1.1",
+    "discord.js": "git+https://github.com/MatteZ02/discord.js.git"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ｌｏａｄ#1939",
+  "license": "ISC"
+}
