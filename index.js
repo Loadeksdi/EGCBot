@@ -3,6 +3,8 @@ const discordClient = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REA
 const interactions = require("discord-slash-commands-client");
 const channelId = process.env.DISCORD_CHANNEL;
 const uuid = require('uuid');
+const guildId = process.env.GUILD_ID;
+let finishCommand;
 
 const interactionsClient = new interactions.Client(
     process.env.BOT_TOKEN,
@@ -56,9 +58,7 @@ class Player {
     constructor(name, team) {
         this.name = name;
         this.team = team;
-        this.isInGame = false;
     }
-
 }
 
 class Team {
@@ -66,8 +66,8 @@ class Team {
         this.players = [];
         this.name = role.name;
         this.role = role;
-        this.sharedGames = choices.keys();
         this.hasPicked = false;
+        this.currentGame = null;
         teams.push(this);
     }
     getPlayersFromTeam() {
@@ -80,17 +80,9 @@ class Game {
         this.id = uuid.v4();
         this.firstTeam = firstTeam;
         this.secondTeam = secondTeam;
-        this.sharedGames = choices.keys();
+        this.sharedGames = choices.map(choice => choice.name);
         activeGames.set(this.id, this);
     }
-}
-
-function getGameByTeam(team) {
-    activeGames.find(game => (game.firstTeam === team || game.secondTeam === team));
-}
-
-function getTeamFromRole(teamRole) {
-    return teams.find(team => team.role.id === teamRole.id)
 }
 
 function createTeamAndPlayers(teamRole) {
@@ -100,7 +92,34 @@ function createTeamAndPlayers(teamRole) {
     return team;
 }
 
-interactionsClient.getCommands().then(console.log).catch(console.error);
+function checkAdmin(interaction) {
+    const roles = interaction.member.roles.cache;
+    return roles.some(role => role.name === "Admin Tournoi");
+}
+
+async function updateStartCommand(choices) {
+    return await interactionsClient
+        .createCommand({
+            name: "finish",
+            description: "A command to use when the two teams finished their match",
+            options: [
+                {
+                    name: "Match",
+                    description: "The match played by the two teams",
+                    type: 3,
+                    required: true,
+                    choices: choices
+                }
+            ]
+        }, channelId);
+}
+
+interactionsClient.getCommands({ guildID: guildId })
+    .then(commands => {
+        commands.forEach(command => interactionsClient.deleteCommand(command.id, guildId));
+        console.log(commands);
+    })
+    .catch(console.error);
 
 discordClient.on("interactionCreate", async (interaction) => {
     if (interaction.name === "info") {
@@ -384,22 +403,22 @@ discordClient.on("interactionCreate", async (interaction) => {
     }
     if (interaction.name === "start") {
         const roles = await interaction.guild.roles.fetch();
+        if (!checkAdmin(interaction)) {
+            return;
+        }
         const firstTeamRole = roles.find(role => interaction.options[0].value === role.id);
         const firstTeam = createTeamAndPlayers(firstTeamRole);
         const secondTeamRole = roles.find(role => interaction.options[1].value === role.id);
         const secondTeam = createTeamAndPlayers(secondTeamRole);
-        new Game(firstTeam, secondTeam);
-        firstTeam.players.forEach(player => {
-            player.isInGame = true;
-        });
-        secondTeam.players.forEach(player => {
-            player.isInGame = true;
-        });
-        const gameChoices = activeGames.map(activeGame => ({
+        const game = new Game(firstTeam, secondTeam);
+        firstTeam.currentGame = game;
+        secondTeam.currentGame = game;
+        const gameChoices = Array.from(activeGames).map(([id, activeGame]) => ({
             name: `${activeGame.firstTeam.name} vs ${activeGame.secondTeam.name}`,
-            value: activeGame.id
+            value: id
         }));
-        interaction.editCommand({
+        // get then add
+        interactionsClient.createCommand({
             name: "finish",
             description: "A command to use when the two teams finished their match",
             options: [
@@ -411,21 +430,23 @@ discordClient.on("interactionCreate", async (interaction) => {
                     choices: gameChoices
                 }
             ]
-        }, finish.id, process.env.GUILD_ID)
+        }, guildId)
+            .catch(error =>
+                console.error(error));
+        interaction.guild.channels.create(gameChoices[0].name, 'text');
     }
-    if (interaction.name === "finish" /*&& interaction.author.role === "Admin tournoi"*/) {
-        const game = getGameByTeam(interaction.options[0].value);
-        game.firstTeam.getPlayersFromTeam().forEach(player => {
-            player.isInGame = false;
-        });
-        game.secondTeam.getPlayersFromTeam().forEach(player => {
-            player.isInGame = false;
-        });
+    if (interaction.name === "finish") {
+        if (!checkAdmin(interaction)) {
+            return;
+        }
+        const game = activeGames.get(interaction.options[0].value);
         game.firstTeam.hasPicked = false;
         game.secondTeam.hasPicked = false;
-        activeGames = activeGames.filter(element =>
-            element !== game
-        );
+        activeGames.delete(game);
+        const command = await interactionsClient.getCommands({ commandID: finishCommand.id, guildID: guildId });
+        const choices = command.options[0].choices.filter(choice => { choice.name.includes(game.firstTeam.name) });
+        console.log(choices);
+        await updateStartCommand(choices);
     }
     if (interaction.name === "pick") {
         const pickingTeam = getTeamByPlayerName(interaction.author.username);
@@ -434,7 +455,7 @@ discordClient.on("interactionCreate", async (interaction) => {
             return;
         }
         pickingTeam.players.forEach(player => {
-            if (!player.isInGame) {
+            if (player.team.currentGame === null) {
                 interaction.channel.send("You cannot pick a game yet !");
                 return;
             }
@@ -451,7 +472,7 @@ discordClient.on("interactionCreate", async (interaction) => {
             return;
         }
         banningTeam.players.forEach(player => {
-            if (!player.isInGame) {
+            if (player.team.currentGame === null) {
                 interaction.channel.send("You cannot ban a game yet !");
                 return;
             }
@@ -534,19 +555,7 @@ discordClient.on('ready', async () => {
         }, channelId)
         .then(console.log)
         .catch(console.error);
-    const finish = await interactionsClient
-        .createCommand({
-            name: "finish",
-            description: "A command to use when the two teams finished their match",
-            options: [
-                {
-                    name: "Match",
-                    description: "The match played by the two teams",
-                    type: 3,
-                    required: true
-                }
-            ]
-        }, channelId);
+    finishCommand = await updateStartCommand();
     interactionsClient
         .createCommand({
             name: "pick",
