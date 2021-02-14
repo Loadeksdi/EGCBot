@@ -1,7 +1,6 @@
 const randomColor = require('randomcolor');
 const Discord = require('discord.js');
 
-
 const globalEmbed = () => new Discord.MessageEmbed()
     .setAuthor('EGC Bot', 'https://cdn.discordapp.com/icons/803260691766575155/305d3630cf15d37b771016ccc9be9772.png?size=128', 'https://www.toornament.com/en_GB/tournaments/4266282578304049152/')
     .setTimestamp();
