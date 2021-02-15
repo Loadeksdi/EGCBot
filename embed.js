@@ -355,8 +355,7 @@ function pickEmbed(match) {
     return embedPick;
 }
 
-function editPickEmbed(team) {
-    const match = team.currentMatch;
+function editPickEmbed(match) {
     match.matchState.embedPick.spliceFields(0, 9);
     match.sharedGames.forEach((pickState, availableGame) => {
         let toDisplay;
@@ -370,7 +369,7 @@ function editPickEmbed(team) {
             toDisplay = '🔴';
         }
         match.matchState.embedPick.addField(availableGame, toDisplay, true);
-        match.matchState.embedPick.setColor(team.role.color);
+        match.matchState.embedPick.setColor(match.matchState.pickState.currentTeam.role.color);
     });
     return match.matchState.embedPick;
 }
