@@ -350,7 +350,7 @@ function gameEmbed(interaction) {
 function pickEmbed(match) {
     const embedPick = globalEmbed();
     embedPick.setTitle(`⚔️ La phase de draft entre ${match.firstTeam.name} et ${match.secondTeam.name} commence ! ⚔️`).setThumbnail('https://cdn.discordapp.com/icons/803260691766575155/305d3630cf15d37b771016ccc9be9772.png?size=256')
-        .setColor(randomColor()).setDescription('Liste des jeux disponibles ci-dessous');
+        .setColor(match.matchState.pickState.currentTeam.role.color).setDescription('Liste des jeux disponibles ci-dessous');
     match.sharedGames.forEach((pickState, availableGame) => (embedPick.addField(availableGame, '🟡', true)));
     return embedPick;
 }
@@ -369,7 +369,7 @@ function editPickEmbed(match) {
             toDisplay = '🔴';
         }
         match.matchState.embedPick.addField(availableGame, toDisplay, true);
-        match.matchState.embedPick.setColor(match.matchState.pickState.currentTeam.role.color);
+        match.matchState.embedPick.setColor(match.matchState.pickState.currentTeam === match.firstTeam ? match.secondTeam.role.color : match.firstTeam.role.color);
     });
     return match.matchState.embedPick;
 }
@@ -394,8 +394,8 @@ function helpEmbed() {
                 value: 'Commande Admin : Lance un match entre deux équipes (Maximum 10 matchs en même temps).'
             },
             {
-                name: '/finish <match>',
-                value: 'Commande Admin : Termine un match entre deux équipes. Veuillez noter qu\'il est **obligatoire** d\'utiliser cette commande après avoir lancé une partie.'
+                name: '/finish',
+                value: 'Commande Admin : Termine un match entre deux équipes. À utiliser dans le canal du match. Veuillez noter qu\'il est **obligatoire** d\'utiliser cette commande après avoir lancé une partie.'
             },
             {
                 name: '/pick <jeu>',

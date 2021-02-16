@@ -1,5 +1,5 @@
 const Discord = require('discord.js');
-const discordClient = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION', 'GUILD_MEMBER'] });
+const discordClient = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION', 'GUILD_MEMBER'], ws: { intents: ['GUILDS', 'GUILD_MEMBERS', 'GUILD_PRESENCES'] } });
 const interactions = require('discord-slash-commands-client');
 const uuid = require('uuid');
 const embed = require('./embed');
@@ -72,7 +72,7 @@ const phases = [
 const commandsList = [
     {
         name: 'help',
-        description: 'Affiche l\'aide',
+        description: 'Affiche l\'aide'
     },
     {
         name: 'info',
@@ -219,6 +219,8 @@ function deleteMatch(match) {
     if (categoryChannel.children.size - 1 === 0) {
         categoryChannel.delete();
     }
+    match.firstTeam.currentMatch = null;
+    match.secondTeam.currentMatch = null;
     activeMatches.delete(match.id);
 }
 
@@ -228,7 +230,9 @@ async function createAllCommands() {
         if (commands.some(discordCommand => command.name === discordCommand.name)) {
             continue;
         }
-        await interactionsClient.createCommand(command, guildId);
+        setTimeout(() => {
+            interactionsClient.createCommand(command, guildId);
+        }, 10000);
     }
 }
 
@@ -269,71 +273,77 @@ function pickBanCheck(interaction) {
     const authorPlayer = getPlayerByName(interaction.author.username);
     const authorId = interaction.author.id;
     if (!authorPlayer) {
-        interaction.channel.send(`Vous n'êtes pas en jeu ! <@${authorId}>`);
+        interaction.channel.send(`*Vous n'êtes pas en jeu ! <@${authorId}>*`);
         return null;
     }
     const team = authorPlayer.team;
     if (team.currentMatch.textChannel.id !== interaction.channel.id) {
         return null;
     }
-    if (team != team.currentMatch.matchState.pickState.currentTeam) {
-        interaction.channel.send(`Ce n'est pas votre tour de ${interaction.name} un jeu ! <@${authorId}>`);
+    if (team.name !== team.currentMatch.matchState.pickState.currentTeam.name) {
+        interaction.channel.send(`*Ce n'est pas votre tour de ${interaction.name} un jeu ! <@${authorId}>*`);
         return null;
     }
     if (team.currentMatch.sharedGames.get(interaction.options[0].value) !== 0) {
-        interaction.channel.send(`Vous ne pouvez pas ${interaction.name} ce jeu, ${interaction.options[0].value} a déjà été pick ou banni ! <@${authorId}>`);
+        interaction.channel.send(`*Vous ne pouvez pas ${interaction.name} ce jeu, ${interaction.options[0].value} n'est pas disponible ! <@${authorId}>*`);
         return null;
     }
     switch (team.currentMatch.gamePhase) {
         case 'groupsPhase':
             if (team.currentMatch.matchState.pickState.step < 2 && interaction.name === 'ban') {
-                interaction.channel.send(`Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>`);
+                interaction.channel.send(`*Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>*`);
                 return null;
             }
             if (team.currentMatch.matchState.pickState.step > 2 && interaction.name === 'pick') {
-                interaction.channel.send(`Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>`);
+                interaction.channel.send(`*Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>*`);
                 return null;
             }
             if (team.currentMatch.matchState.pickState.step >= 5) {
-                interaction.channel.send(`Partie terminée, veuillez contacter un admin pour /finish ! <@${authorId}>`);
+                interaction.channel.send(`*Partie terminée, veuillez contacter un admin pour /finish ! <@${authorId}>*`);
                 return null;
             }
             return team;
         case 'final':
         default:
             if (team.currentMatch.matchState.pickState.step <= 1 && interaction.name === 'ban') {
-                interaction.channel.send(`Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>`);
+                interaction.channel.send(`*Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>*`);
                 return null;
             }
             if (team.currentMatch.matchState.pickState.step > 1 && interaction.name === 'pick') {
-                interaction.channel.send(`Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>`);
+                interaction.channel.send(`*Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>*`);
                 return null;
             }
+            return team;
     }
 }
 
 function generateRandomGame(match) {
     const games = Array.from(match.sharedGames).filter(([game, pickState]) => pickState === 0);
-    const randomGame = games[Math.floor(Math.random() * games.length)];
+    const randomGame = games[Math.floor(Math.random() * games.length)][0];
     match.sharedGames.set(randomGame, 1);
     match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
     return randomGame;
 }
 
 
-function manageSteps(match, interaction) {
+async function manageSteps(match, interaction) {
     const filter = (reaction, user) => {
-        return (reaction.emoji.name === '1️⃣' || reaction.emoji.name === '2️⃣') && user.id === interaction.author.id;
+        // to fix
+        return !user.bot && (reaction.emoji.name === '1️⃣' || reaction.emoji.name === '2️⃣') && getPlayerByName(user.username).team.name !== getPlayerByName(interaction.author.username).team.name;
     };
     if (interaction.name === 'pick') {
         switch (match.gamePhase) {
             case 'groupsPhase':
+                if (match.matchState.pickState.step === 2) {
+                    interaction.channel.send(`*La prochaine équipe qui devra bannir un jeu est : ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role}*`);
+                }
                 break;
             case 'final':
                 break;
             default:
-                if (match.matchState.pickState.step === 1) {
-                    interaction.channel.send(`Le jeu aléatoire sera : **${generateRandomGame(match).name}**!`);
+                if (match.matchState.pickState.step === 2) {
+                    interaction.channel.send(`Le jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                    interaction.channel.send(`*La prochaine équipe qui devra bannir un jeu est : ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role}*`);
                 }
                 break;
         }
@@ -342,20 +352,22 @@ function manageSteps(match, interaction) {
         switch (match.gamePhase) {
             case 'groupsPhase':
                 if (match.matchState.pickState.step >= 5) {
-                    interaction.channel.send(`Le dernier jeu sera : **${generateRandomGame(match).name}**!`);
+                    interaction.channel.send(`Le dernier jeu sera : **${generateRandomGame(match)}**!`);
                 }
                 break;
             case 'final':
                 break;
             default:
-                if (match.matchState.pickState.step === 3) {
+                if (match.matchState.pickState.step === 4) {
                     const firstRandomGame = generateRandomGame(match);
                     const secondRandomGame = generateRandomGame(match);
-                    const randomGamesMessage = interaction.channel.send(`Les jeux aléatoires seront : (1) **${firstRandomGame.name}** et (2) **${secondRandomGame.name}** !`);
-                    interaction.channel.send(`L\'équipe @<${match.matchState.pickState.currentTeam === match.firstTeam ? match.secondTeam : match.matchState.pickState.currentTeam}> a 30 secondes pour choisir l'ordre des jeux à jouer en cliquant sur l'emoji correspondant !`);
-                    const collector = randomGamesMessage.createReactionCollector(filter, { time: 30000 });
+                    const randomGamesMessage = await interaction.channel.send(`Les jeux aléatoires seront : (1) **${firstRandomGame}** et (2) **${secondRandomGame}** !`);
+                    interaction.channel.send(`*L\'équipe ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.secondTeam.role : match.matchState.pickState.currentTeam.role} a 30 secondes pour choisir l'ordre des jeux à jouer en cliquant sur l'emoji correspondant !*`);
+                    const collector = randomGamesMessage.createReactionCollector(filter, { max: 3, time: 30000 });
+                    randomGamesMessage.react('1️⃣');
+                    randomGamesMessage.react('2️⃣');
                     collector.on('collect', (reaction, user) => {
-                        interaction.channel.send(`Le premier jeu à jouer sera ${reaction.emoji.name === '1️⃣' ? firstRandomGame : secondRandomGame} et ${reaction.emoji.name === '2️⃣' ? firstRandomGame : secondRandomGame} le deuxième !`);
+                        interaction.channel.send(`Le premier jeu à jouer sera **${reaction.emoji.name === '1️⃣' ? firstRandomGame : secondRandomGame}** et **${reaction.emoji.name === '2️⃣' ? firstRandomGame : secondRandomGame}** le deuxième !`);
                     });
                 }
                 break;
@@ -369,7 +381,7 @@ discordClient.on('interactionCreate', async (interaction) => {
             interaction.channel.send(embed.gameEmbed(interaction));
         }
         if (interaction.name === 'start' && checkAdmin(interaction)) {
-            const roles = await interaction.guild.roles.fetch();
+            const roles = interaction.guild.roles.cache;
             let alreadyInGame = false;
             const argRoles = [interaction.options[0].value, interaction.options[1].value];
             activeMatches.forEach((match, key) => {
@@ -381,22 +393,22 @@ discordClient.on('interactionCreate', async (interaction) => {
             if (alreadyInGame) {
                 return;
             }
-            const firstTeamRole = roles.find(role => interaction.options[0].value === role.id);
+            const firstTeamRole = roles.get(interaction.options[0].value);
             const firstTeam = createTeamAndPlayers(firstTeamRole);
-            const secondTeamRole = roles.find(role => interaction.options[1].value === role.id);
+            const secondTeamRole = roles.get(interaction.options[1].value);
             const secondTeam = createTeamAndPlayers(secondTeamRole);
             const match = new Match(firstTeam, secondTeam, interaction.options[2].value);
             firstTeam.currentMatch = match;
             secondTeam.currentMatch = match;
             await createAllChannels(interaction, match);
+            const order = Math.floor(Math.random() * 2);
+            match.matchState.pickState.currentTeam = (order === 0 ? firstTeam : secondTeam);
             match.matchState.embedPick = embed.pickEmbed(match);
             match.matchState.embedPickMessage = await match.textChannel.send(match.matchState.embedPick);
-            const order = Math.floor(Math.random() * 2);
-            match.matchState.pickState.currentTeam = order == 0 ? firstTeam : secondTeam;
-            match.textChannel.send(`L'équipe ${firstTeam.first ? firstTeam.name : secondTeam.name} sera la première à pick !`);
+            match.textChannel.send(`*L'équipe ${match.matchState.pickState.currentTeam.role === firstTeam.role ? firstTeam.role : secondTeam.role} sera la première à pick !*`);
         }
         if (interaction.name === 'finish' && checkAdmin(interaction)) {
-            const match = Array.from(activeMatches.values()).find(match => (interaction.channel.name.includes(match.firstTeam.name)));
+            const match = Array.from(activeMatches.values()).find(match => (interaction.channel.name.includes(match.firstTeam.name.toLowerCase().replace(' ', '-'))));
             if (!match) {
                 return;
             }
@@ -408,6 +420,7 @@ discordClient.on('interactionCreate', async (interaction) => {
                 return;
             }
             pickingTeam.currentMatch.sharedGames.set(interaction.options[0].value, 1);
+            interaction.channel.send(`Le jeu **${interaction.options[0].value}** a été pick par l'équipe ${pickingTeam.role} !`);
             pickingTeam.currentMatch.matchState.embedPickMessage.edit(embed.editPickEmbed(pickingTeam.currentMatch));
             pickingTeam.currentMatch.matchState.pickState.currentTeam = pickingTeam.currentMatch.matchState.pickState.currentTeam === pickingTeam.currentMatch.firstTeam ? pickingTeam.currentMatch.secondTeam : pickingTeam.currentMatch.firstTeam;
             pickingTeam.currentMatch.matchState.pickState.step++;
@@ -419,7 +432,8 @@ discordClient.on('interactionCreate', async (interaction) => {
                 return;
             }
             banningTeam.currentMatch.sharedGames.set(interaction.options[0].value, 2);
-            banningTeam.currentMatch.matchState.embedPickMessage.edit(embed.editPickEmbed(banningTeam));
+            interaction.channel.send(`Le jeu **${interaction.options[0].value}** a été banni par l'équipe ${banningTeam.role} !`);
+            banningTeam.currentMatch.matchState.embedPickMessage.edit(embed.editPickEmbed(banningTeam.currentMatch));
             banningTeam.currentMatch.matchState.pickState.currentTeam = banningTeam.currentMatch.matchState.pickState.currentTeam === banningTeam.currentMatch.firstTeam ? banningTeam.currentMatch.secondTeam : banningTeam.currentMatch.firstTeam;
             banningTeam.currentMatch.matchState.pickState.step++;
             manageSteps(banningTeam.currentMatch, interaction);
@@ -434,11 +448,7 @@ discordClient.on('interactionCreate', async (interaction) => {
 
 discordClient.on('ready', async () => {
     console.log(`Logged in as ${discordClient.user.tag}!`);
-    //createAllCommands();
-    interactionsClient.createCommand({
-        name: "finish",
-        description: "Une commande à utiliser quand les deux équipes ont fini leur match",
-    }, guildId).then(console.log).catch(console.error);
+    createAllCommands();
 });
 
 discordClient.login(process.env.BOT_TOKEN);
