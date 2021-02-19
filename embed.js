@@ -1,4 +1,3 @@
-const randomColor = require('randomcolor');
 const Discord = require('discord.js');
 
 const globalEmbed = () => new Discord.MessageEmbed()
@@ -352,6 +351,14 @@ function pickEmbed(match) {
     embedPick.setTitle(`⚔️ La phase de draft entre ${match.firstTeam.name} et ${match.secondTeam.name} commence ! ⚔️`).setThumbnail('https://cdn.discordapp.com/icons/803260691766575155/305d3630cf15d37b771016ccc9be9772.png?size=256')
         .setColor(match.matchState.pickState.currentTeam.role.color).setDescription('Liste des jeux disponibles ci-dessous');
     match.sharedGames.forEach((pickState, availableGame) => (embedPick.addField(availableGame, '🟡', true)));
+    let footerPhase;
+    switch (match.gamePhase) {
+        case 'groupsPhase': footerPhase = 'Phase de groupes';
+        case 'quarterFinals': footerPhase = 'Quart de finale';
+        case 'semiFinals': footerPhase = 'Demi-finale';
+        case 'finals': footerPhase = 'Grande finale';
+    }
+    embedPick.setFooter(footerPhase);
     return embedPick;
 }
 

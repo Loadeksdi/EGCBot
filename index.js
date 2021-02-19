@@ -228,14 +228,17 @@ function deleteMatch(match) {
 
 async function createAllCommands() {
     const commands = await interactionsClient.getCommands({ guildID: process.env.GUILD_ID });
-    for (const command of commandsList) {
-        if (commands.some(discordCommand => command.name === discordCommand.name)) {
-            continue;
-        }
-        setTimeout(() => {
-            interactionsClient.createCommand(command, guildId);
-        }, 60000);
+    createACommand(commands, 0);
+}
+
+function createACommand(commands, cpt) {
+    if (!commandsList[cpt]) {
+        return;
     }
+    if (commands[cpt].name !== commandsList[cpt].name) {
+        interactionsClient.createCommand(commandsList[cpt], guildId);
+    }
+    setTimeout(() => createACommand(commandsList[cpt], cpt + 1), 30000);
 }
 
 async function createAllChannels(interaction, match) {
