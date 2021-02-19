@@ -1,5 +1,5 @@
 const Discord = require('discord.js');
-const discordClient = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION', 'GUILD_MEMBER'], ws: { intents: ['GUILDS', 'GUILD_MEMBERS', 'GUILD_PRESENCES'] } });
+const discordClient = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION', 'GUILD_MEMBER'], ws: { intents: ['GUILDS', 'GUILD_MEMBERS', 'GUILD_PRESENCES', 'GUILD_MESSAGE_REACTIONS'] } });
 const interactions = require('discord-slash-commands-client');
 const uuid = require('uuid');
 const embed = require('./embed');
@@ -65,7 +65,7 @@ const phases = [
     },
     {
         name: 'Finale',
-        value: 'final'
+        value: 'finals'
     }
 ];
 
@@ -144,12 +144,13 @@ const commandsList = [
     }
 ];
 
-const players = [];
+let players = [];
 const teams = [];
 const activeMatches = new Map();
 let categoryChannel = null;
 class Player {
-    constructor(name, team) {
+    constructor(id, name, team) {
+        this.id = id;
         this.name = name;
         this.team = team;
         players.push(this);
@@ -193,13 +194,13 @@ class Match {
     }
 }
 
-function getPlayerByName(name) {
-    return players.find(player => player.name === name);
+function getPlayerById(id) {
+    return players.find(player => player.id === id);
 }
 
 function createTeamAndPlayers(teamRole) {
     const team = new Team(teamRole);
-    const teamPlayers = teamRole.members.map(player => new Player(player.user.username, team));
+    const teamPlayers = teamRole.members.map(member => new Player(member.user.id, member.user.username, team));
     team.players = teamPlayers;
     return team;
 }
@@ -219,6 +220,7 @@ function deleteMatch(match) {
     if (categoryChannel.children.size - 1 === 0) {
         categoryChannel.delete();
     }
+    players = players.filter(player => !match.firstTeam.players.includes(player) && !match.secondTeam.players.includes(player));
     match.firstTeam.currentMatch = null;
     match.secondTeam.currentMatch = null;
     activeMatches.delete(match.id);
@@ -232,7 +234,7 @@ async function createAllCommands() {
         }
         setTimeout(() => {
             interactionsClient.createCommand(command, guildId);
-        }, 10000);
+        }, 60000);
     }
 }
 
@@ -270,7 +272,7 @@ async function createAllChannels(interaction, match) {
 }
 
 function pickBanCheck(interaction) {
-    const authorPlayer = getPlayerByName(interaction.author.username);
+    const authorPlayer = getPlayerById(interaction.author.id);
     const authorId = interaction.author.id;
     if (!authorPlayer) {
         interaction.channel.send(`*Vous n'êtes pas en jeu ! <@${authorId}>*`);
@@ -294,23 +296,37 @@ function pickBanCheck(interaction) {
                 interaction.channel.send(`*Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>*`);
                 return null;
             }
-            if (team.currentMatch.matchState.pickState.step > 2 && interaction.name === 'pick') {
+            if (team.currentMatch.matchState.pickState.step >= 2 && interaction.name === 'pick') {
                 interaction.channel.send(`*Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>*`);
                 return null;
             }
-            if (team.currentMatch.matchState.pickState.step >= 5) {
-                interaction.channel.send(`*Partie terminée, veuillez contacter un admin pour /finish ! <@${authorId}>*`);
+            if (team.currentMatch.matchState.pickState.step >= 6) {
+                interaction.channel.send(`*Phase de draft terminée, veuillez contacter un admin pour /finish ! <@${authorId}>*`);
                 return null;
             }
             return team;
-        case 'final':
-        default:
-            if (team.currentMatch.matchState.pickState.step <= 1 && interaction.name === 'ban') {
+        case 'finals':
+            if (team.currentMatch.matchState.pickState.step >= 2) {
+                interaction.channel.send(`*Phase de draft terminée, veuillez contacter un admin pour /finish ! <@${authorId}>*`);
+                return null;
+            }
+            if (interaction.name === 'ban') {
+                interaction.channel.send(`Pas de bans en finale !`);
+                return null;
+            }
+            return team;
+        case 'quarterFinals':
+        case 'semiFinals':
+            if (team.currentMatch.matchState.pickState.step < 2 && interaction.name === 'ban') {
                 interaction.channel.send(`*Vous ne pouvez pas bannir un jeu pour le moment, vous devez d'abord pick un jeu ! <@${authorId}>*`);
                 return null;
             }
             if (team.currentMatch.matchState.pickState.step > 1 && interaction.name === 'pick') {
                 interaction.channel.send(`*Vous ne pouvez plus pick de jeu pour le moment, veuillez bannir un jeu ! <@${authorId}>*`);
+                return null;
+            }
+            if (team.currentMatch.matchState.pickState.step >= 5) {
+                interaction.channel.send(`*Partie terminée, veuillez contacter un admin pour /finish ! <@${authorId}>*`);
                 return null;
             }
             return team;
@@ -328,8 +344,7 @@ function generateRandomGame(match) {
 
 async function manageSteps(match, interaction) {
     const filter = (reaction, user) => {
-        // to fix
-        return !user.bot && (reaction.emoji.name === '1️⃣' || reaction.emoji.name === '2️⃣') && getPlayerByName(user.username).team.name !== getPlayerByName(interaction.author.username).team.name;
+        return (reaction.emoji.name === '1️⃣' || reaction.emoji.name === '2️⃣') && getPlayerById(user.id).team.name !== getPlayerById(interaction.author.id).team.name;
     };
     if (interaction.name === 'pick') {
         switch (match.gamePhase) {
@@ -338,7 +353,13 @@ async function manageSteps(match, interaction) {
                     interaction.channel.send(`*La prochaine équipe qui devra bannir un jeu est : ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role}*`);
                 }
                 break;
-            case 'final':
+            case 'finals':
+                if (match.matchState.pickState.step === 1) {
+                    interaction.channel.send(`1️⃣ Le premier jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                    interaction.channel.send(`2️⃣ Le deuxième jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                    interaction.channel.send(`3️⃣ Le troisième jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                    interaction.channel.send(`4️⃣ Le dernier jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                }
                 break;
             default:
                 if (match.matchState.pickState.step === 2) {
@@ -351,21 +372,19 @@ async function manageSteps(match, interaction) {
     else {
         switch (match.gamePhase) {
             case 'groupsPhase':
-                if (match.matchState.pickState.step >= 5) {
+                if (match.matchState.pickState.step === 5) {
                     interaction.channel.send(`Le dernier jeu sera : **${generateRandomGame(match)}**!`);
                 }
-                break;
-            case 'final':
                 break;
             default:
                 if (match.matchState.pickState.step === 4) {
                     const firstRandomGame = generateRandomGame(match);
                     const secondRandomGame = generateRandomGame(match);
-                    const randomGamesMessage = await interaction.channel.send(`Les jeux aléatoires seront : (1) **${firstRandomGame}** et (2) **${secondRandomGame}** !`);
-                    interaction.channel.send(`*L\'équipe ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.secondTeam.role : match.matchState.pickState.currentTeam.role} a 30 secondes pour choisir l'ordre des jeux à jouer en cliquant sur l'emoji correspondant !*`);
-                    const collector = randomGamesMessage.createReactionCollector(filter, { max: 3, time: 30000 });
-                    randomGamesMessage.react('1️⃣');
-                    randomGamesMessage.react('2️⃣');
+                    const randomGamesMessage = await interaction.channel.send(`Les jeux aléatoires seront : 1️⃣ **${firstRandomGame}** et 2️⃣ **${secondRandomGame}** !`);
+                    interaction.channel.send(`*L\'équipe ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role} a 30 secondes pour choisir l'ordre des jeux à jouer en cliquant sur l'emoji correspondant !*`);
+                    await randomGamesMessage.react('1️⃣');
+                    await randomGamesMessage.react('2️⃣');
+                    const collector = randomGamesMessage.createReactionCollector(filter, { max: 1, time: 30000 });
                     collector.on('collect', (reaction, user) => {
                         interaction.channel.send(`Le premier jeu à jouer sera **${reaction.emoji.name === '1️⃣' ? firstRandomGame : secondRandomGame}** et **${reaction.emoji.name === '2️⃣' ? firstRandomGame : secondRandomGame}** le deuxième !`);
                     });
@@ -423,8 +442,8 @@ discordClient.on('interactionCreate', async (interaction) => {
             interaction.channel.send(`Le jeu **${interaction.options[0].value}** a été pick par l'équipe ${pickingTeam.role} !`);
             pickingTeam.currentMatch.matchState.embedPickMessage.edit(embed.editPickEmbed(pickingTeam.currentMatch));
             pickingTeam.currentMatch.matchState.pickState.currentTeam = pickingTeam.currentMatch.matchState.pickState.currentTeam === pickingTeam.currentMatch.firstTeam ? pickingTeam.currentMatch.secondTeam : pickingTeam.currentMatch.firstTeam;
-            pickingTeam.currentMatch.matchState.pickState.step++;
             manageSteps(pickingTeam.currentMatch, interaction);
+            pickingTeam.currentMatch.matchState.pickState.step++;
         }
         if (interaction.name === 'ban' && checkPlayer(interaction)) {
             const banningTeam = pickBanCheck(interaction);
@@ -435,8 +454,8 @@ discordClient.on('interactionCreate', async (interaction) => {
             interaction.channel.send(`Le jeu **${interaction.options[0].value}** a été banni par l'équipe ${banningTeam.role} !`);
             banningTeam.currentMatch.matchState.embedPickMessage.edit(embed.editPickEmbed(banningTeam.currentMatch));
             banningTeam.currentMatch.matchState.pickState.currentTeam = banningTeam.currentMatch.matchState.pickState.currentTeam === banningTeam.currentMatch.firstTeam ? banningTeam.currentMatch.secondTeam : banningTeam.currentMatch.firstTeam;
-            banningTeam.currentMatch.matchState.pickState.step++;
             manageSteps(banningTeam.currentMatch, interaction);
+            banningTeam.currentMatch.matchState.pickState.step++;
         }
         if (interaction.name === 'help') {
             interaction.channel.send(embed.helpEmbed());
