@@ -235,7 +235,7 @@ function createACommand(commands, cpt) {
     if (!commandsList[cpt]) {
         return;
     }
-    if (commands[cpt].name !== commandsList[cpt].name) {
+    if (commands.name !== commandsList[cpt].name) {
         interactionsClient.createCommand(commandsList[cpt], guildId);
         console.log(`Succesfully created the ${commandsList[cpt].name} command`);
     }
