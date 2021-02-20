@@ -351,11 +351,20 @@ function pickEmbed(match) {
     embedPick.setTitle(`⚔️ La phase de draft entre ${match.firstTeam.name} et ${match.secondTeam.name} commence ! ⚔️`).setThumbnail('https://cdn.discordapp.com/icons/803260691766575155/305d3630cf15d37b771016ccc9be9772.png?size=256')
         .setColor(match.matchState.pickState.currentTeam.role.color).setDescription('Liste des jeux disponibles ci-dessous');
     match.sharedGames.forEach((pickState, availableGame) => (embedPick.addField(availableGame, '🟡', true)));
+    embedPick.addField('\u200b', '\u200b')
+    embedPick.addField("Aide", `- Pour choisir un jeu : \`/pick <nomdujeu>\`
+    - Pour bannir un jeu : \`/ban <nomdujeu>\``)
     let footerPhase;
     switch (match.gamePhase) {
-        case 'groupsPhase': footerPhase = 'Phase de groupes';
-        case 'quarterFinals': footerPhase = 'Quart de finale';
-        case 'semiFinals': footerPhase = 'Demi-finale';
+        case 'groupsPhase':
+            footerPhase = 'Phase de groupes';
+            break;
+        case 'quarterFinals':
+            footerPhase = 'Quart de finale';
+            break;
+        case 'semiFinals':
+            footerPhase = 'Demi-finale';
+            break;
         case 'finals': footerPhase = 'Grande finale';
     }
     embedPick.setFooter(footerPhase);
@@ -363,7 +372,7 @@ function pickEmbed(match) {
 }
 
 function editPickEmbed(match) {
-    match.matchState.embedPick.spliceFields(0, 9);
+    match.matchState.embedPick.fields = [];
     match.sharedGames.forEach((pickState, availableGame) => {
         let toDisplay;
         if (pickState === 0) {
@@ -376,8 +385,11 @@ function editPickEmbed(match) {
             toDisplay = '🔴';
         }
         match.matchState.embedPick.addField(availableGame, toDisplay, true);
-        match.matchState.embedPick.setColor(match.matchState.pickState.currentTeam === match.firstTeam ? match.secondTeam.role.color : match.firstTeam.role.color);
     });
+    match.matchState.embedPick.addField('\u200b', '\u200b')
+    match.matchState.embedPick.addField("Aide", `- Pour choisir un jeu : \`/pick <nomdujeu>\`
+    - Pour bannir un jeu : \`/ban <nomdujeu>\``)
+    match.matchState.embedPick.setColor(match.matchState.pickState.currentTeam === match.firstTeam ? match.secondTeam.role.color : match.firstTeam.role.color);
     return match.matchState.embedPick;
 }
 

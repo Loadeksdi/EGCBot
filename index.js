@@ -218,28 +218,36 @@ function checkPlayer(interaction) {
 function deleteMatch(match) {
     match.textChannel.delete();
     if (categoryChannel.children.size - 1 === 0) {
+        console.error(`The "matches" category is now empty, deleting...`)
         categoryChannel.delete();
     }
     players = players.filter(player => !match.firstTeam.players.includes(player) && !match.secondTeam.players.includes(player));
     match.firstTeam.currentMatch = null;
     match.secondTeam.currentMatch = null;
     activeMatches.delete(match.id);
+    console.log(`The match ${match.id} (in the channel ${match.textChannel.name}) has been successfully deleted`)
 }
 
 async function createAllCommands() {
     const commands = await interactionsClient.getCommands({ guildID: process.env.GUILD_ID });
-    createACommand(commands, 0);
+    createACommand(commands, commandsList);
 }
 
-function createACommand(commands, cpt) {
-    if (!commandsList[cpt]) {
+function createACommand(discordCommands, localCommands) {
+    const currentCommand = localCommands.pop();
+    if (!currentCommand) {
+        console.log("Finished creating all commands")
         return;
     }
-    if (commands.name !== commandsList[cpt].name) {
-        interactionsClient.createCommand(commandsList[cpt], guildId);
-        console.log(`Succesfully created the ${commandsList[cpt].name} command`);
+    const commandAlreadyExists = discordCommands.some((command) => command.name === currentCommand.name);
+    if (!commandAlreadyExists) {
+        interactionsClient.createCommand(currentCommand, guildId);
+        console.log(`Succesfully created the ${currentCommand.name} command`);
+        setTimeout(() => createACommand(discordCommands, localCommands), 30000);
+    } else {
+        console.log(`Command ${currentCommand.name} was already in the guild, moving on...`)
+        createACommand(discordCommands, localCommands);
     }
-    setTimeout(() => createACommand(commandsList[cpt], cpt + 1), 30000);
 }
 
 async function createAllChannels(interaction, match) {
@@ -341,7 +349,6 @@ function generateRandomGame(match) {
     const games = Array.from(match.sharedGames).filter(([game, pickState]) => pickState === 0);
     const randomGame = games[Math.floor(Math.random() * games.length)][0];
     match.sharedGames.set(randomGame, 1);
-    match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
     return randomGame;
 }
 
@@ -363,12 +370,14 @@ async function manageSteps(match, interaction) {
                     interaction.channel.send(`2️⃣ Le deuxième jeu aléatoire sera : **${generateRandomGame(match)}** !`);
                     interaction.channel.send(`3️⃣ Le troisième jeu aléatoire sera : **${generateRandomGame(match)}** !`);
                     interaction.channel.send(`4️⃣ Le dernier jeu aléatoire sera : **${generateRandomGame(match)}** !`);
+                    match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
                 }
                 break;
             default:
                 if (match.matchState.pickState.step === 2) {
                     interaction.channel.send(`Le jeu aléatoire sera : **${generateRandomGame(match)}** !`);
                     interaction.channel.send(`*La prochaine équipe qui devra bannir un jeu est : ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role}*`);
+                    match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
                 }
                 break;
         }
@@ -378,16 +387,17 @@ async function manageSteps(match, interaction) {
             case 'groupsPhase':
                 if (match.matchState.pickState.step === 5) {
                     interaction.channel.send(`Le dernier jeu sera : **${generateRandomGame(match)}**!`);
+                    match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
                 }
                 break;
             default:
                 if (match.matchState.pickState.step === 4) {
                     const firstRandomGame = generateRandomGame(match);
                     const secondRandomGame = generateRandomGame(match);
+                    match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
                     const randomGamesMessage = await interaction.channel.send(`Les jeux aléatoires seront : 1️⃣ **${firstRandomGame}** et 2️⃣ **${secondRandomGame}** !`);
                     interaction.channel.send(`*L\'équipe ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role} a 30 secondes pour choisir l'ordre des jeux à jouer en cliquant sur l'emoji correspondant !*`);
-                    await randomGamesMessage.react('1️⃣');
-                    await randomGamesMessage.react('2️⃣');
+                    await Promise.all([randomGamesMessage.react('1️⃣'), randomGamesMessage.react('2️⃣')]);
                     const collector = randomGamesMessage.createReactionCollector(filter, { max: 1, time: 30000 });
                     collector.on('collect', (reaction, user) => {
                         interaction.channel.send(`Le premier jeu à jouer sera **${reaction.emoji.name === '1️⃣' ? firstRandomGame : secondRandomGame}** et **${reaction.emoji.name === '2️⃣' ? firstRandomGame : secondRandomGame}** le deuxième !`);
@@ -431,8 +441,11 @@ discordClient.on('interactionCreate', async (interaction) => {
             match.textChannel.send(`*L'équipe ${match.matchState.pickState.currentTeam.role === firstTeam.role ? firstTeam.role : secondTeam.role} sera la première à pick !*`);
         }
         if (interaction.name === 'finish' && checkAdmin(interaction)) {
-            const match = Array.from(activeMatches.values()).find(match => (interaction.channel.name.includes(match.firstTeam.name.toLowerCase().replace(' ', '-'))));
+            const match = Array.from(activeMatches.values()).find(match => match.textChannel === interaction.channel);
             if (!match) {
+                const errMsg = `Couldn't find match associated to the channel ${interaction.channel.id} (${interaction.channel.name})`
+                console.error(errMsg)
+                interaction.channel.send(errMsg)
                 return;
             }
             deleteMatch(match);
