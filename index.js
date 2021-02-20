@@ -207,7 +207,7 @@ function createTeamAndPlayers(teamRole) {
 
 function checkAdmin(interaction) {
     const roles = interaction.member.roles.cache;
-    return roles.find(role => role.name === 'Admin Tournoi');
+    return roles.find(role => role.name === 'Admin tournoi');
 }
 
 function checkPlayer(interaction) {
