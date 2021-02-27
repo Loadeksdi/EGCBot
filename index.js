@@ -374,7 +374,7 @@ async function manageSteps(match, interaction) {
                 }
                 break;
             default:
-                if (match.matchState.pickState.step === 2) {
+                if (match.matchState.pickState.step === 1) {
                     interaction.channel.send(`Le jeu aléatoire sera : **${generateRandomGame(match)}** !`);
                     interaction.channel.send(`*La prochaine équipe qui devra bannir un jeu est : ${match.matchState.pickState.currentTeam.role === match.firstTeam.role ? match.firstTeam.role : match.secondTeam.role}*`);
                     match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
@@ -391,7 +391,7 @@ async function manageSteps(match, interaction) {
                 }
                 break;
             default:
-                if (match.matchState.pickState.step === 4) {
+                if (match.matchState.pickState.step === 3) {
                     const firstRandomGame = generateRandomGame(match);
                     const secondRandomGame = generateRandomGame(match);
                     match.matchState.embedPickMessage.edit(embed.editPickEmbed(match));
